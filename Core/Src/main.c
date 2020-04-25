@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <stdbool.h>
 
 #include "stm32l476g_discovery.h"
 #include "stm32l476g_discovery_gyroscope.h"
@@ -63,6 +64,8 @@ struct Position
 #define Z_ANGLE_CONV (-966667)
 
 #define ANGLE_LIMIT (45)
+
+#define TRAIL_LENGTH (4)
 
 /* USER CODE END PD */
 
@@ -114,11 +117,12 @@ struct Position center;
 
 //newest is 0, oldest is 3
 struct Position positions[4];
-const char pos_chars[] = {'X','O','o','.'};
+const char pos_chars[] = {'0','O','o','.','X'};
+
+struct Position targetPositions[2];
+bool targetNotGenerated = true;
 
 char pos_char_string[2];
-//int current_x_position = (ROWS_DISPLAY / 2) + 1;
-//int current_z_position = (COLS_DISPLAY / 2) + 1;
 
 //for debugging purposes
 int num_points = 0;
@@ -142,6 +146,8 @@ int noiseFilter(int rawValue, int noiseLevel);
 char* returnPosChar(int index);
 int isXPositionOccupied(int index);
 int isXZPositionOccupied(int x, int z);
+void generateTargetPosition(void);
+double calcDistance(struct Position p1, struct Position p2);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -169,7 +175,7 @@ char* returnPosChar(int index){
 
 int isXPositionOccupied(int index){
 
-	for(int i = 0; i < 4; i++){
+	for(int i = 0; i < TRAIL_LENGTH; i++){
 		if(index == (ROWS_DISPLAY - positions[i].x + 1)){
 			return i;
 		}
@@ -180,13 +186,53 @@ int isXPositionOccupied(int index){
 
 int isXZPositionOccupied(int x, int z){
 
-	for(int i = 0; i < 4; i++){
+	for(int i = 0; i < TRAIL_LENGTH; i++){
 		if((ROWS_DISPLAY - positions[i].x + 1) == x && positions[i].z == z){
 			return i;
 		}
 	}
 
 	return -1;
+}
+
+double calcDistance(struct Position p1, struct Position p2){
+	return sqrt((p1.x - p2.x)*(p1.x - p2.x) + (p1.z - p2.z)*(p1.z - p2.z));
+}
+
+void generateTargetPosition(void){
+	//int x_rand, z_rand;
+	//generate random position
+	struct Position rand;
+
+	HAL_RNG_GenerateRandomNumber(&hrng, &rand.x);
+	HAL_RNG_GenerateRandomNumber(&hrng, &rand.z);
+
+	rand.x = (abs(rand.x) % ROWS_DISPLAY) + 1;
+	rand.z = (abs(rand.z) % COLS_DISPLAY) + 1;
+
+	//first time generating?
+	if(targetNotGenerated){
+		targetPositions[1] = rand;
+		targetPositions[0] = targetPositions[1];
+		targetNotGenerated = false;
+	//next generate
+	} else {
+		targetPositions[1] = targetPositions[0];
+
+
+		//calc distance
+
+		while(calcDistance(rand, targetPositions[1]) <= 10.0){
+			HAL_RNG_GenerateRandomNumber(&hrng, &rand.x);
+			HAL_RNG_GenerateRandomNumber(&hrng, &rand.z);
+
+			rand.x = (abs(rand.x) % ROWS_DISPLAY) + 1;
+			rand.z = (abs(rand.z) % COLS_DISPLAY) + 1;
+
+		}
+
+		targetPositions[0] = rand;
+	}
 }
 /* USER CODE END 0 */
 
@@ -201,7 +247,7 @@ int main(void)
 	center.z = (COLS_DISPLAY / 2) + 1;
 
 
-	for(int i = 0; i < 4; i++){
+	for(int i = 0; i < TRAIL_LENGTH; i++){
 		positions[i] = center;
 	}
 
@@ -232,6 +278,7 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  generateTargetPosition();
 	/* Init the uart Buffers */
 	for (unsigned char i = 0; i < UART_BUFFER_SIZE; i++)  {
        gbl_uart2_transmitBuffer[i] = '0' + i;
@@ -846,16 +893,24 @@ void StartTask02(void *argument)
     //	temp_pos[i] = positions[i];
     //}
 
+    //generateTargetPosition();
+
+    //insert level up code here
+    if(calcDistance(targetPositions[0], positions[0]) < 2){
+    	generateTargetPosition();
+    }
 
     	for(int i = 1; i <= ROWS_DISPLAY; i++){
 
-    		if((x_char_index = isXPositionOccupied(i)) != -1){
+    		if((x_char_index = isXPositionOccupied(i)) != -1 || (ROWS_DISPLAY - targetPositions[0].x + 1) == i){
 
 					sprintf((char*)gbl_uart2_transmitBuffer,"\0");
 					for (int j = 1; j <= COLS_DISPLAY; j++){
 						if((z_char_index = isXZPositionOccupied(i,j)) != -1){
 							strcat((char*)gbl_uart2_transmitBuffer,returnPosChar(z_char_index));
 							//z_char_index_tick = z_char_index;
+						} else if(targetPositions[0].z == j && (ROWS_DISPLAY - targetPositions[0].x + 1) == i){
+							strcat((char*)gbl_uart2_transmitBuffer,returnPosChar(4));
 						} else {
 							strcat((char*)gbl_uart2_transmitBuffer,"-");
 						}
@@ -871,7 +926,7 @@ void StartTask02(void *argument)
 
     	}
 
-    	for(int i = 3; i > 0; i--){
+    	for(int i = TRAIL_LENGTH - 1; i > 0; i--){
     		positions[i] = positions[i - 1];
     	}
 
