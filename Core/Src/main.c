@@ -220,6 +220,14 @@ void generateTargetPosition(void){
 
 	//first time generating?
 	if(targetNotGenerated){
+		while(calcDistance(rand, positions[0]) <= 10.0){
+			HAL_RNG_GenerateRandomNumber(&hrng, &rand.x);
+			HAL_RNG_GenerateRandomNumber(&hrng, &rand.z);
+
+			rand.x = (abs(rand.x) % ROWS_DISPLAY) + 1;
+			rand.z = (abs(rand.z) % COLS_DISPLAY) + 1;
+		}
+
 		targetPositions[1] = rand;
 		targetPositions[0] = targetPositions[1];
 		targetNotGenerated = false;
@@ -960,7 +968,7 @@ void StartTask02(void *argument)
 		if(calcDistance(targetPositions[0], positions[0]) < 2){
 			generateTargetPosition();
 
-			score += level;
+			score += level*(((double) timer)/time_start);
 			if (level < 6){
 				level++;
 				time_start = (time_start * 2) / 3;
@@ -1000,7 +1008,7 @@ void StartTask02(void *argument)
 				positions[i] = positions[i - 1];
 			}
 
-		sprintf((char*)gbl_uart2_transmitBuffer,"Level:%d   \r\nScore:%d   \r\nTime Left: %d.%d   \r\n", level, score,timer / 100, timer % 100);
+		sprintf((char*)gbl_uart2_transmitBuffer,"Level:%d   \r\nScore:%d   \r\nTime Left: %d.%02d   \r\n", level, score,timer / 100, timer % 100);
 		HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
     } else {
     	HAL_GPIO_WritePin(GPIOB, LD_R_Pin, GPIO_PIN_SET);
