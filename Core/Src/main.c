@@ -968,7 +968,7 @@ void StartTask02(void *argument)
 		if(calcDistance(targetPositions[0], positions[0]) < 2){
 			generateTargetPosition();
 
-			score += level*(((double) timer)/time_start);
+			score += round(level*(((double) timer)/time_start));
 			if (level < 6){
 				level++;
 				time_start = (time_start * 2) / 3;
