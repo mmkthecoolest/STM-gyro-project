@@ -42,7 +42,7 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-
+volatile int timer;
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/

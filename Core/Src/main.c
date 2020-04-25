@@ -82,6 +82,8 @@ RNG_HandleTypeDef hrng;
 
 SPI_HandleTypeDef hspi2;
 
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart2;
 
 /* Definitions for defaultTask */
@@ -124,6 +126,11 @@ bool targetNotGenerated = true;
 
 char pos_char_string[2];
 
+//scoring and level
+int score = 0;
+int level = 1;
+int time_start = 1000;
+
 //for debugging purposes
 int num_points = 0;
 
@@ -137,6 +144,7 @@ static void MX_I2C2_Init(void);
 static void MX_RNG_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM2_Init(void);
 void StartDefaultTask(void *argument);
 void StartTask02(void *argument);
 
@@ -251,6 +259,8 @@ int main(void)
 		positions[i] = center;
 	}
 
+	timer = time_start;
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -276,7 +286,9 @@ int main(void)
   MX_RNG_Init();
   MX_SPI2_Init();
   MX_USART2_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start_IT(&htim2);
 
   generateTargetPosition();
 	/* Init the uart Buffers */
@@ -566,6 +578,52 @@ static void MX_SPI2_Init(void)
   /* USER CODE BEGIN SPI2_Init 2 */
 
   /* USER CODE END SPI2_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 9999;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 100;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+  //HAL_NVIC_SetPriority(TIM2_IRQn,0,0);
+  //HAL_NVIC_EnableIRQ(TIM2_IRQn);
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -865,6 +923,7 @@ void StartTask02(void *argument)
   for(;;)
   {
     osDelay(67); //67 for 15FPS
+    HAL_GPIO_WritePin(GPIOE, LD_G_Pin, GPIO_PIN_RESET);
 
     /*
     int disp_accum_x = (int) round(((float) x_accum) / num_points);
@@ -872,66 +931,86 @@ void StartTask02(void *argument)
     int disp_accum_z = (int) round(((float) z_accum) / num_points);
 	*/
 
-    sprintf((char*)gbl_uart2_transmitBuffer,"\x1b[0;0H");
-    HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
 
-    //ascii display
+    if(timer > 0){
+		sprintf((char*)gbl_uart2_transmitBuffer,"\x1b[0;0H");
+		HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
 
-    int x_char_index;
-    int z_char_index;
+		//ascii display
 
-    int disp_accum_x = x_accum / X_ANGLE_CONV;
-    int disp_accum_y = y_accum / Y_ANGLE_CONV;
-    int disp_accum_z = z_accum / Z_ANGLE_CONV;
+		int x_char_index;
+		int z_char_index;
 
-    positions[0].x = center.x + (disp_accum_x * x_dot_step);
-    positions[0].z = center.z + (disp_accum_z * z_dot_step);
+		int disp_accum_x = x_accum / X_ANGLE_CONV;
+		int disp_accum_y = y_accum / Y_ANGLE_CONV;
+		int disp_accum_z = z_accum / Z_ANGLE_CONV;
 
-    //struct Position temp_pos[4];
+		positions[0].x = center.x + (disp_accum_x * x_dot_step);
+		positions[0].z = center.z + (disp_accum_z * z_dot_step);
 
-    //for(int i = 0; i < 4; i++){
-    //	temp_pos[i] = positions[i];
-    //}
+		//struct Position temp_pos[4];
 
-    //generateTargetPosition();
+		//for(int i = 0; i < 4; i++){
+		//	temp_pos[i] = positions[i];
+		//}
 
-    //insert level up code here
-    if(calcDistance(targetPositions[0], positions[0]) < 2){
-    	generateTargetPosition();
-    }
+		//generateTargetPosition();
 
-    	for(int i = 1; i <= ROWS_DISPLAY; i++){
+		//insert level up code here
+		if(calcDistance(targetPositions[0], positions[0]) < 2){
+			generateTargetPosition();
 
-    		if((x_char_index = isXPositionOccupied(i)) != -1 || (ROWS_DISPLAY - targetPositions[0].x + 1) == i){
+			score += level;
+			if (level < 6){
+				level++;
+				time_start = (time_start * 2) / 3;
+			}
 
-					sprintf((char*)gbl_uart2_transmitBuffer,"\0");
-					for (int j = 1; j <= COLS_DISPLAY; j++){
-						if((z_char_index = isXZPositionOccupied(i,j)) != -1){
-							strcat((char*)gbl_uart2_transmitBuffer,returnPosChar(z_char_index));
-							//z_char_index_tick = z_char_index;
-						} else if(targetPositions[0].z == j && (ROWS_DISPLAY - targetPositions[0].x + 1) == i){
-							strcat((char*)gbl_uart2_transmitBuffer,returnPosChar(4));
-						} else {
-							strcat((char*)gbl_uart2_transmitBuffer,"-");
+			timer = time_start;
+			HAL_GPIO_WritePin(GPIOE, LD_G_Pin, GPIO_PIN_SET);
+		}
+
+			for(int i = 1; i <= ROWS_DISPLAY; i++){
+
+				if((x_char_index = isXPositionOccupied(i)) != -1 || (ROWS_DISPLAY - targetPositions[0].x + 1) == i){
+
+						sprintf((char*)gbl_uart2_transmitBuffer,"\0");
+						for (int j = 1; j <= COLS_DISPLAY; j++){
+							if((z_char_index = isXZPositionOccupied(i,j)) != -1){
+								strcat((char*)gbl_uart2_transmitBuffer,returnPosChar(z_char_index));
+								//z_char_index_tick = z_char_index;
+							} else if(targetPositions[0].z == j && (ROWS_DISPLAY - targetPositions[0].x + 1) == i){
+								strcat((char*)gbl_uart2_transmitBuffer,returnPosChar(4));
+							} else {
+								strcat((char*)gbl_uart2_transmitBuffer,"-");
+							}
 						}
-					}
 
-    			strcat((char*)gbl_uart2_transmitBuffer,"\r\n");
-    			HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
-    		} else {
+					strcat((char*)gbl_uart2_transmitBuffer,"\r\n");
+					HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
+				} else {
 
-    				sprintf((char*)gbl_uart2_transmitBuffer,"%.*s\r\n", COLS_DISPLAY, "--------------------------------------------------------------------------");
-    				HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
-    		}
+						sprintf((char*)gbl_uart2_transmitBuffer,"%.*s\r\n", COLS_DISPLAY, "--------------------------------------------------------------------------");
+						HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
+				}
 
-    	}
+			}
 
-    	for(int i = TRAIL_LENGTH - 1; i > 0; i--){
-    		positions[i] = positions[i - 1];
-    	}
+			for(int i = TRAIL_LENGTH - 1; i > 0; i--){
+				positions[i] = positions[i - 1];
+			}
 
-    sprintf((char*)gbl_uart2_transmitBuffer,"X:%d   \r\nY:%d   \r\nZ:%d   \r\n", disp_accum_x, disp_accum_y, disp_accum_z);
-    HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
+		sprintf((char*)gbl_uart2_transmitBuffer,"Level:%d   \r\nScore:%d   \r\nTime Left: %d.%d   \r\n", level, score,timer / 100, timer % 100);
+		HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
+    } else {
+    	HAL_GPIO_WritePin(GPIOB, LD_R_Pin, GPIO_PIN_SET);
+
+    	sprintf((char*)gbl_uart2_transmitBuffer,"\x1b[2J");
+    	HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
+
+    	sprintf((char*)gbl_uart2_transmitBuffer,"\r\nGame Over\r\n\r\nLevel:%d\r\nScore:%d",level,score);
+    	HAL_UART_Transmit(&huart2, gbl_uart2_transmitBuffer, strlen((char *)gbl_uart2_transmitBuffer),100);
+    }
   }
   /* USER CODE END StartTask02 */
 }
